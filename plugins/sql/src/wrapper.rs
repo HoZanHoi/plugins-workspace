@@ -19,6 +19,12 @@ use sqlx::MySql;
 use sqlx::Postgres;
 #[cfg(feature = "sqlite")]
 use sqlx::Sqlite;
+#[cfg(feature = "mysql")]
+use sqlx::mysql::MySqlPoolOptions;
+#[cfg(feature = "postgres")]
+use sqlx::postgres::PgPoolOptions;
+#[cfg(feature = "sqlite")]
+use sqlx::sqlite::SqlitePoolOptions;
 
 use crate::LastInsertId;
 
@@ -67,6 +73,7 @@ pub enum DbPool {
 impl DbPool {
     pub(crate) async fn connect<R: Runtime>(
         conn_url: &str,
+        init_sql: &Option<String>,
         _app: &AppHandle<R>,
     ) -> Result<Self, crate::Error> {
         match conn_url
@@ -88,21 +95,60 @@ impl DbPool {
                 if !Sqlite::database_exists(conn_url).await.unwrap_or(false) {
                     Sqlite::create_database(conn_url).await?;
                 }
-                Ok(Self::Sqlite(Pool::connect(conn_url).await?))
+                let pool = match init_sql {
+                    Some(sql) => {
+                        let sql = sql.to_string();
+                        SqlitePoolOptions::new().after_connect(move |conn, _meta| {
+                            let sql = sql.clone();
+                            Box::pin(async move {
+                                conn.execute(sql.as_str()).await?;
+                                Ok(())
+                            })
+                        }).connect(conn_url).await?
+                    },
+                    None => Pool::connect(conn_url).await?
+                };
+                Ok(Self::Sqlite(pool))
             }
             #[cfg(feature = "mysql")]
             "mysql" => {
                 if !MySql::database_exists(conn_url).await.unwrap_or(false) {
                     MySql::create_database(conn_url).await?;
                 }
-                Ok(Self::MySql(Pool::connect(conn_url).await?))
+                let pool = match init_sql {
+                    Some(sql) => {
+                        let sql = sql.to_string();
+                        MySqlPoolOptions::new().after_connect(move |conn, _meta| {
+                            let sql = sql.clone();
+                            Box::pin(async move {
+                                conn.execute(sql.as_str()).await?;
+                                Ok(())
+                            })
+                        }).connect(conn_url).await?
+                    },
+                    None => Pool::connect(conn_url).await?
+                };
+                Ok(Self::MySql(pool))
             }
             #[cfg(feature = "postgres")]
             "postgres" => {
                 if !Postgres::database_exists(conn_url).await.unwrap_or(false) {
                     Postgres::create_database(conn_url).await?;
                 }
-                Ok(Self::Postgres(Pool::connect(conn_url).await?))
+                let pool = match init_sql {
+                    Some(sql) => {
+                        let sql = sql.to_string();
+                        PgPoolOptions::new().after_connect(move |conn, _meta| {
+                            let sql = sql.clone();
+                            Box::pin(async move {
+                                conn.execute(sql.as_str()).await?;
+                                Ok(())
+                            })
+                        }).connect(conn_url).await?
+                    },
+                    None => Pool::connect(conn_url).await?
+                };
+                Ok(Self::Postgres(pool))
             }
             _ => Err(crate::Error::InvalidDbUrl(conn_url.to_string())),
         }

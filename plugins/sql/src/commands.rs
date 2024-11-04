@@ -15,8 +15,9 @@ pub(crate) async fn load<R: Runtime>(
     db_instances: State<'_, DbInstances>,
     migrations: State<'_, Migrations>,
     db: String,
+    init_sql: Option<String>,
 ) -> Result<String, crate::Error> {
-    let pool = DbPool::connect(&db, &app).await?;
+    let pool = DbPool::connect(&db, &init_sql, &app).await?;
 
     if let Some(migrations) = migrations.0.lock().await.remove(&db) {
         let migrator = Migrator::new(migrations).await?;

@@ -143,7 +143,7 @@ impl Builder {
                     let mut lock = instances.0.write().await;
 
                     for db in config.preload {
-                        let pool = DbPool::connect(&db, app).await?;
+                        let pool = DbPool::connect(&db, &None, app).await?;
 
                         if let Some(migrations) =
                             self.migrations.as_mut().and_then(|mm| mm.remove(&db))
